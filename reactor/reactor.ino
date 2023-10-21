@@ -7,74 +7,80 @@
 
 // This makes things really slow.
 const bool debug = false;
-                                               
+
 // Sensing
-const int SENSOR1_SEND_PIN = 2;
-const int SENSOR1_RECV_PIN = 3;
-CapacitiveSensor capsensor1 = CapacitiveSensor(SENSOR1_SEND_PIN, SENSOR1_RECV_PIN);
+const uint8_t SENSOR1_SEND_PIN = 2;
+const uint8_t SENSOR1_RECV_PIN = 3;
 
-const int SENSOR2_SEND_PIN = 2;
-const int SENSOR2_RECV_PIN = 4;
-CapacitiveSensor capsensor2 = CapacitiveSensor(SENSOR2_SEND_PIN, SENSOR2_RECV_PIN);
+const uint8_t SENSOR2_SEND_PIN = 2;
+const uint8_t SENSOR2_RECV_PIN = 4;
 
-const int SENSOR3_SEND_PIN = 2;
-const int SENSOR3_RECV_PIN = 5;
-CapacitiveSensor capsensor3 = CapacitiveSensor(SENSOR3_SEND_PIN, SENSOR3_RECV_PIN);
+const uint8_t SENSOR3_SEND_PIN = 2;
+const uint8_t SENSOR3_RECV_PIN = 5;
 
-typedef struct SensorState {
-  CapacitiveSensor sensor;
-  float sample;
-  bool initialized_median;
-  float median;
-  float median_step;
-  float avg;
-
+class SensorState {
+public:
   // Proximity score from 0 to 1.
   // 1 = closest.
   float prox;
 
   // Difference between current and previous proximity score
   float dprox;
-} SensorState;
 
-void init_sensor_state(SensorState &x, CapacitiveSensor &sensor) {
-  x.sensor = sensor;
-  x.sample = 0;
-  x.initialized_median = 0;
-  x.median = 0;
-  x.median_step = 0;
-  x.avg = 0;
-  x.prox = 0;
-  x.dprox = 0;
-  return;
+  SensorState::SensorState(uint8_t send_pin, uint8_t recv_pin);
+  void SensorState::sense();
+
+private:
+  CapacitiveSensor &sensor;
+  float sample;
+  bool initialized_median;
+  float median;
+  float median_step;
+  float avg;
+
+  void SensorState::update_proximity_score();
+  void SensorState::update_median();
+  void SensorState::update_avg();
+};
+
+// Initialization
+SensorState::SensorState(uint8_t send_pin, uint8_t recv_pin) {
+  sensor = CapacitiveSensor::CapacitiveSensor(send_pin, recv_pin);
+
+  // Turn off auto-calibration otherwise occurring every 20 s
+  sensor.set_CS_AutocaL_Millis(0xFFFFFFFF);
+
+  sample = 0;
+  initialized_median = 0;
+  median = 0;
+  median_step = 0;
+  avg = 0;
+  prox = 0;
+  dprox = 0;
 }
 
-SensorState sensor1 = { .sensor = capsensor1 };
-SensorState sensor2 = { .sensor = capsensor2 };
-SensorState sensor3 = { .sensor = capsensor3 };
+void SensorState::sense() {
+  sample = sensor.capacitiveSensor(50);
+  update_proximity_score();
+}
+
+SensorState state1 = SensorState(SENSOR1_SEND_PIN, SENSOR1_RECV_PIN);
+SensorState state2 = SensorState(SENSOR2_SEND_PIN, SENSOR2_RECV_PIN);
+SensorState state3 = SensorState(SENSOR3_SEND_PIN, SENSOR3_RECV_PIN);
 
 // Duration of the last time step in ms
 float t;
 float dt;
 
 // LED strip
-const int LED_PIN = 13;
-const int NUM_LEDS = 50;
+const uint8_t LED_PIN = 13;
+const uint8_t NUM_LEDS = 50;
 CRGB leds[NUM_LEDS];
 
-void setup()                    
+void setup()
 {
-  // Turn off autocalibrate
-  capsensor1.set_CS_AutocaL_Millis(0xFFFFFFFF);
-  capsensor2.set_CS_AutocaL_Millis(0xFFFFFFFF);
-  capsensor3.set_CS_AutocaL_Millis(0xFFFFFFFF);
-  
   if (debug)
     Serial.begin(9600);
-
-  init_sensor_state(sensor1, capsensor1);
-  init_sensor_state(sensor2, capsensor2);
-  init_sensor_state(sensor3, capsensor3);
   FastLED.addLeds<WS2811, LED_PIN, RGB>(leds, NUM_LEDS);
 }
 
@@ -84,30 +90,29 @@ void setup()
 
 long iterations = 0;
 
-
 // Estimate the long-term median (moving percentile)
-void update_median(SensorState &x) {
-  if (!x.initialized_median) {
+void SensorState::update_median() {
+  if (!initialized_median) {
     if (iterations == 50) {
-      x.median = x.avg;
-      x.median_step = abs(x.median) / 100;
-      x.initialized_median = true;
+      median = avg;
+      median_step = abs(median) / 100;
+      initialized_median = true;
     }
     else
-      x.median = x.avg;
+      median = avg;
   }
   else {
-    if (x.sample > x.median) {
-      x.median += x.median_step;
-    } else if (x.sample < x.median) {
-      x.median -= x.median_step;
+    if (sample > median) {
+      median += median_step;
+    } else if (sample < median) {
+      median -= median_step;
     }
   }
 }
 
 // Estimate the short-term mean (exponential moving average)
-void update_avg(SensorState &x) {
-  x.avg = 0.2 * x.sample + 0.8 * x.avg;
+void SensorState::update_avg() {
+  avg = 0.2 * sample + 0.8 * avg;
 }
 
 // Values of the deviation mapping to a proximity score range of [0, 1]
@@ -122,22 +127,22 @@ const float min_logdev = logdeviation(min_dev);
 const float max_logdev = logdeviation(max_dev);
 
 // Set the prox and dprox globals.
-float update_proximity_score(SensorState &x) {
-  update_median(x);
-  update_avg(x);
-  float deviation = x.median > 0 ? max(0, x.avg-x.median)/max(0, x.median) : 0;
+void SensorState::update_proximity_score() {
+  update_median();
+  update_avg();
+  float deviation = median > 0 ? max(0, avg-median)/max(0, median) : 0;
   float logdev = logdeviation(deviation);
   float new_prox = min(1, max(0, (logdev-min_logdev)/(max_logdev-min_logdev)));
-  x.dprox = new_prox - x.prox;
+  dprox = new_prox - prox;
   // Avoid big jumps
-  if (x.dprox > 0.1) {
-    x.prox += 0.1;
+  if (dprox > 0.1) {
+    prox += 0.1;
   }
-  else if (x.dprox < -0.1) {
-    x.prox -= 0.1;
+  else if (dprox < -0.1) {
+    prox -= 0.1;
   }
   else {
-    x.prox = new_prox;
+    prox = new_prox;
   }
   if (debug) {
     /*
@@ -151,17 +156,14 @@ float update_proximity_score(SensorState &x) {
     Serial.print(deviation);
     Serial.print("\tscore: ");
     */
-    Serial.println(x.prox);
+    Serial.println(prox);
   }
 }
 
 void sense() {
-  sensor1.sample = sensor1.sensor.capacitiveSensor(50);
-  update_proximity_score(sensor1);
-  sensor2.sample = sensor2.sensor.capacitiveSensor(50);
-  update_proximity_score(sensor2);
-  sensor3.sample = sensor3.sensor.capacitiveSensor(50);
-  update_proximity_score(sensor3);
+  state1.sense();
+  state2.sense();
+  state2.sense();
 }
 
 // [0.0, 1.0] -> [0, 255]
@@ -177,15 +179,15 @@ void output() {
     //if ((i + iterations) % NUM_LEDS < 20)
     //if (i < 20)
     {
-      float all = (sensor1.prox + sensor2.prox + sensor3.prox) / 3.0;
-      red = 0.5 * sensor1.prox;
-      green = 0.5 * sensor2.prox;
-      blue = 0.5 * sensor3.prox;
+      float all = (state1.prox + state2.prox + state3.prox) / 3.0;
+      red = 0.5 * state1.prox;
+      green = 0.5 * state2.prox;
+      blue = 0.5 * state3.prox;
       leds[i] = CRGB(color(red), color(green), color(blue));
     }
   }
   FastLED.show();
-} 
+}
 
 void loop() {
   long t2 = millis();
