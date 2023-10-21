@@ -64,8 +64,11 @@ CRGB leds[NUM_LEDS];
 
 void setup()                    
 {
-  // turn off autocalibrate on channel 1 - just as an example
-  //capsensor.set_CS_AutocaL_Millis(0xFFFFFFFF);
+  // Turn off autocalibrate
+  capsensor1.set_CS_AutocaL_Millis(0xFFFFFFFF);
+  capsensor2.set_CS_AutocaL_Millis(0xFFFFFFFF);
+  capsensor3.set_CS_AutocaL_Millis(0xFFFFFFFF);
+  
   if (debug)
     Serial.begin(9600);
 
@@ -153,11 +156,11 @@ float update_proximity_score(SensorState &x) {
 }
 
 void sense() {
-  sensor1.sample = sensor1.sensor.capacitiveSensor(30);
-  sensor2.sample = sensor2.sensor.capacitiveSensor(30);
-  sensor3.sample = sensor3.sensor.capacitiveSensor(30);
+  sensor1.sample = sensor1.sensor.capacitiveSensor(50);
   update_proximity_score(sensor1);
+  sensor2.sample = sensor2.sensor.capacitiveSensor(50);
   update_proximity_score(sensor2);
+  sensor3.sample = sensor3.sensor.capacitiveSensor(50);
   update_proximity_score(sensor3);
 }
 
@@ -175,9 +178,9 @@ void output() {
     //if (i < 20)
     {
       float all = (sensor1.prox + sensor2.prox + sensor3.prox) / 3.0;
-      red = 0.01 + 0.5 * sensor1.prox + 0.1 * all;
-      green = 0.01 + 0.5 * sensor2.prox + 0.1 * all;
-      blue = 0.01 + 0.5 * sensor3.prox + 0.1 * all;
+      red = 0.5 * sensor1.prox;
+      green = 0.5 * sensor2.prox;
+      blue = 0.5 * sensor3.prox;
       leds[i] = CRGB(color(red), color(green), color(blue));
     }
   }
